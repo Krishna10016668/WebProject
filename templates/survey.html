@@ -10,75 +10,31 @@
 
 <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
 
+    <!-- Main Container -->
     <div class="w-full max-w-2xl bg-white rounded-xl shadow-lg overflow-hidden">
 
+        <!-- Header -->
         <div class="bg-purple-700 p-4 text-white flex items-center">
             <span class="text-4xl font-bold">P</span>
             <h1 class="text-xl font-semibold ml-4">Survey Form</h1>
         </div>
 
+        <!-- Form Content - Dynamically Generated -->
         <div class="p-8">
             <form id="surveyForm" class="space-y-6">
+
+                <!-- Simple Jinja2 loop to generate a text input for each column header -->
+                {% for field in fields %}
                 <div>
-                    <label for="name" class="block text-gray-700 text-sm font-medium mb-1">Name</label>
-                    <input type="text" id="name" name="name" placeholder="Enter text..."
+                    <label for="{{ field.name }}" class="block text-gray-700 text-sm font-medium mb-2">{{ field.label
+                        }}</label>
+                    <input type="text" id="{{ field.name }}" name="{{ field.label }}"
                         class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                         required>
                 </div>
+                {% endfor %}
 
-                <div>
-                    <label for="question" class="block text-gray-700 text-sm font-medium mb-1">Which color do you
-                        prefer?</label>
-                    <div class="space-y-2">
-                        <div class="flex items-center">
-                            <input type="radio" id="opt1_red" name="color_preference" value="Red"
-                                class="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                            <label for="opt1_red" class="ml-2 text-gray-700">Red</label>
-                        </div>
-                        <div class="flex items-center">
-                            <input type="radio" id="opt2_blue" name="color_preference" value="Blue"
-                                class="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                            <label for="opt2_blue" class="ml-2 text-gray-700">Blue</label>
-                        </div>
-                        <div class="flex items-center">
-                            <input type="radio" id="opt3_green" name="color_preference" value="Green"
-                                class="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                            <label for="opt3_green" class="ml-2 text-gray-700">Green</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-gray-700 text-sm font-medium mb-1">Address</label>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="md:col-span-2">
-                            <input type="text" id="address1" name="address1" placeholder="Line 1"
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        </div>
-                        <div>
-                            <input type="text" id="city" name="city" placeholder="City"
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        </div>
-                        <div>
-                            <input type="tel" id="phone" name="phone" placeholder="Phone"
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        </div>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="question2" class="block text-gray-700 text-sm font-medium mb-1">What is your favorite
-                        season?</label>
-                    <select id="question2" name="favorite_season"
-                        class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        <option value="" disabled selected>Select an option</option>
-                        <option value="Spring">Spring</option>
-                        <option value="Summer">Summer</option>
-                        <option value="Autumn">Autumn</option>
-                        <option value="Winter">Winter</option>
-                    </select>
-                </div>
-
+                <!-- Static Submit Button -->
                 <button type="submit"
                     class="w-full py-3 mt-8 bg-purple-700 text-white font-semibold rounded-full shadow-md hover:bg-purple-800 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500">
                     SUBMIT
@@ -87,6 +43,7 @@
         </div>
     </div>
 
+    <!-- Modal for Success Message -->
     <div id="successModal"
         class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
         <div class="bg-white rounded-lg p-6 shadow-xl w-80 text-center">
@@ -95,6 +52,7 @@
         </div>
     </div>
 
+    <!-- The original JavaScript still works perfectly without any changes! -->
     <script src="{{ url_for('static', filename='survey_script.js') }}"></script>
 </body>
 
