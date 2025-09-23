@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survey Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+        body {
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .modal {
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+</head>
+
+<body class="bg-[#f9f4ff] text-[#4a148c] text-center flex flex-col items-center justify-start min-h-screen">
+
+    <header class="w-full bg-[#8e44ad] p-3 flex items-center justify-left">
+        <div
+            class="logo w-12 h-12 bg-white text-[#8e44ad] text-2xl font-bold flex items-center justify-center rounded-lg">
+            P</div>
+    </header>
+
+    <main id="upload-screen" class="flex-grow flex flex-col items-center justify-center p-5 w-full">
+        <div class="content w-full max-w-2xl bg-white rounded-2xl shadow-lg p-5">
+            <h2 class="text-[#8e44ad] mb-10 text-xl font-bold">HOW DO YOU WANT TO BUILD YOUR FORM?</h2>
+            <input type="file" id="file-input" accept=".xlsx, .xls" class="hidden">
+            <div id="upload-box" class="upload-box bg-[#f3e5f5] p-10 rounded-2xl text-center cursor-pointer ">
+                <button
+                    class="upload-button bg-[#ce93d8] text-white border-none rounded-2xl w-[180px] h-[80px] flex flex-col items-center justify-center mx-auto mb-2 text-sm cursor-pointer shadow-lg transition-colors hover:bg-[#ba68c8]">
+                    <i class="fa fa-upload" style="font-size:24px; color:rgb(255, 255, 255);"></i>
+                </button>
+                <div class="line text-[#8e44ad] text-base font-bold">Upload Excel sheet</div>
+            </div>
+        </div>
+    </main>
+
+    <main id="published-screen" class="flex-grow flex flex-col items-center justify-center p-5 w-full hidden">
+        <div class="content w-full max-w-2xl bg-white rounded-2xl shadow-lg p-5">
+            <p class="congrats-text text-[#8e44ad] text-2xl font-bold mb-12">Congratulations.. your form has been
+                published.</p>
+            <div class="share-section flex flex-col items-center gap-5 mb-10 w-full max-w-md mx-auto">
+                <div class="share-link w-full text-left">
+                    <label for="share-link-input" class="block mb-2 text-[#8e44ad] text-sm font-bold">Share via
+                        link</label>
+                    <div class="input-with-icon relative">
+                        <input type="text" id="share-link-input" value="" readonly
+                            class="w-full pl-4 pr-12 py-3 border border-[#ce93d8] rounded-lg text-base">
+                        <button
+                            class="copy-button icon absolute right-4 top-1/2 -translate-y-1/2 bg-transparent border-none text-2xl text-[#ce93d8] rounded-md transition-colors hover:bg-[#8e44ad] hover:text-white">&#10148;</button>
+                    </div>
+                </div>
+                <div class="share-email w-full text-left">
+                    <label for="share-email-input" class="block mb-2 text-[#8e44ad] text-sm font-bold">Share via
+                        email</label>
+                    <div class="input-with-icon relative">
+                        <input type="email" id="share-email-input" placeholder="Enter email address"
+                            class="w-full pl-4 pr-12 py-3 border border-[#ce93d8] rounded-lg text-base">
+                        <button
+                            class="email-button icon absolute right-4 top-1/2 -translate-y-1/2 bg-transparent border-none text-2xl text-[#ce93d8] rounded-md transition-colors hover:bg-[#8e44ad] hover:text-white">&#9993;</button>
+                    </div>
+                </div>
+            </div>
+            <button
+                class="download-button bg-[#ce93d8] text-white border-none rounded-2xl w-[180px] h-[80px] flex flex-col items-center justify-center mx-auto mt-2 mb-1 text-sm cursor-pointer shadow-lg transition-colors hover:bg-[#ba68c8]">
+                <i class="fa fa-download" style="font-size:24px; color:rgb(255, 255, 255);"></i>
+            </button>
+            <div class="line text-[#8e44ad] text-base font-bold">Download responses</div>
+        </div>
+    </main>
+
+    <div id="successModal"
+        class="modal fixed bottom-4 right-4 w-72 max-w-xs bg-white rounded-lg shadow-xl p-6 transform translate-x-full opacity-0">
+        <button id="closeModal" class="absolute top-2 right-2 p-1 text-gray-500 hover:text-gray-700 transition-colors">
+            <i class="fa fa-times text-xl"></i>
+        </button>
+        <h2 class="text-xl font-bold text-[#8e44ad] mb-2" id="modal-title"></h2>
+        <p class="text-gray-600 text-sm" id="modal-message"></p>
+    </div>
+
+    <script src="{{ url_for('static', filename='admin_script.js') }}"></script>
+</body>
+
+</html>
