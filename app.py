@@ -1,134 +1,149 @@
-# app.py
+# My first Flask survey app
 
+# Import the things we need from Flask and other libraries
 import os
 import uuid
 import pandas as pd
-import re
 from flask import Flask, request, render_template, jsonify, send_from_directory, abort
 
-# Initialize the Flask application
+# Create the Flask app
 app = Flask(__name__)
 
-# --- CONFIGURATION ---
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
-RESPONSES_FOLDER = os.path.join(os.getcwd(), 'responses')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(RESPONSES_FOLDER, exist_ok=True)
+# --- App Setup ---
+# Define the folders where we will save files
+UPLOAD_FOLDER = 'uploads'
+RESPONSES_FOLDER = 'responses'
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['RESPONSES_FOLDER'] = RESPONSES_FOLDER
-# --- END CONFIGURATION ---
+# Create the folders if they don't already exist
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+if not os.path.exists(RESPONSES_FOLDER):
+    os.makedirs(RESPONSES_FOLDER)
+# --- End Setup ---
 
 
-# --- ROUTES ---
-
+# This is the main page of our website
 @app.route('/')
 def index():
-    """Serves the main admin page (index.html)."""
+    # Just show the index.html file
     return render_template('index.html')
 
-
+# This handles the file upload
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handles the Excel file upload and generates a unique survey ID."""
-    if 'surveyFile' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
+    # Check if a file was actually sent
+    if 'surveyFile' in request.files:
+        the_file = request.files['surveyFile']
+
+        # Make sure the filename is not empty
+        if the_file.filename != '':
+            # Create a new unique ID for the survey
+            survey_id = str(uuid.uuid4())
+            new_filename = f"{survey_id}.xlsx"
+            
+            # Figure out where to save it
+            save_path = os.path.join(UPLOAD_FOLDER, new_filename)
+            the_file.save(save_path)
+
+            # Create the full URL for the new survey
+            survey_url = request.host_url + f"survey/{survey_id}"
+
+            # Send a success message back to the javascript
+            return jsonify({
+                "message": "File uploaded!",
+                "survey_id": survey_id,
+                "survey_url": survey_url
+            })
     
-    file = request.files['surveyFile']
-    
-    if file.filename == '':
-        return jsonify({"error": "No file selected"}), 400
-        
-    if file and file.filename.endswith(('.xlsx', '.xls')):
-        survey_id = str(uuid.uuid4())
-        filename = f"{survey_id}.xlsx"
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+    # If something went wrong, send an error
+    return jsonify({"error": "Something went wrong during upload"}), 400
 
-        survey_url = request.host_url + f"survey/{survey_id}"
-
-        return jsonify({
-            "message": "File uploaded successfully!",
-            "survey_id": survey_id,
-            "survey_url": survey_url
-        })
-        
-    return jsonify({"error": "Invalid file type. Please upload an Excel file."}), 400
-
-
+# This function shows the survey form to a user
 @app.route('/survey/<survey_id>')
 def show_survey(survey_id):
-    """
-    ★★★★★ THIS IS THE REDESIGNED DYNAMIC SECTION ★★★★★
-    Generates a survey form from ANY Excel file's column headers.
-    """
-    survey_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{survey_id}.xlsx")
-    
-    if not os.path.exists(survey_file_path):
-        abort(404, description="Survey not found.")
+    # Find the path to the excel file for this survey
+    file_path = os.path.join(UPLOAD_FOLDER, f"{survey_id}.xlsx")
 
+    # Try to read the file and create the form
     try:
-        # Read the excel file
-        df = pd.read_excel(survey_file_path)
+        # Read the excel file into pandas
+        df = pd.read_excel(file_path)
         
-        # Get the list of column headers from the file
-        headers = df.columns.tolist()
+        # Get the column headers from the file
+        column_headers = df.columns.tolist()
         
-        fields = []
-        for header in headers:
-            # The original header is the question label the user sees
-            label = str(header)
-            
-            # Create a safe, programmatic name for the HTML input field.
-            # Example: "Full Name" -> "full_name"
-            # 1. Convert to lowercase
-            # 2. Replace spaces and other non-alphanumeric chars with an underscore
-            # 3. Remove any trailing underscores
-            name = re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
+        # This will hold the list of fields for our form
+        form_fields = []
 
-            # We only need the name and label for our new dynamic form
-            fields.append({'name': name, 'label': label})
+        # Loop through each header we found in the file
+        for header in column_headers:
             
-        # Pass the list of fields to the survey template
-        return render_template('survey.html', survey_id=survey_id, fields=fields)
+            # The 'label' is the original header name
+            field_label = header
+            
+            # The 'name' needs to be simple for HTML.
+            # So we make it lowercase and replace spaces with underscores.
+            field_name = header.lower().replace(' ', '_')
+            
+            # Create a dictionary for this field
+            field_info = {
+                'name': field_name, 
+                'label': field_label
+            }
+            # Add the dictionary to our list of fields
+            form_fields.append(field_info)
+            
+        # Now, render the survey.html template and give it the list of fields
+        return render_template('survey.html', survey_id=survey_id, fields=form_fields)
 
     except Exception as e:
-        # Catch any errors during file processing
-        print(f"Error processing Excel file: {e}")
-        abort(500, description="There was an error processing the survey file.")
+        # If anything goes wrong, print the error and show an error page
+        print("There was an error reading the excel file:")
+        print(e)
+        abort(500, description="Could not process the survey file.")
 
-
+# This function saves the data when a user submits the form
 @app.route('/submit/<survey_id>', methods=['POST'])
 def submit_survey(survey_id):
-    """Receives form submission data and saves it to a CSV file."""
-    response_data = request.json
-    response_file_path = os.path.join(app.config['RESPONSES_FOLDER'], f"{survey_id}.csv")
-    new_response_df = pd.DataFrame([response_data])
+    # Get the data that the javascript sent to us
+    data_from_form = request.json
     
-    if os.path.exists(response_file_path):
-        new_response_df.to_csv(response_file_path, mode='a', header=False, index=False)
+    # Figure out the name of the CSV file for saving responses
+    csv_filename = f"{survey_id}.csv"
+    csv_file_path = os.path.join(RESPONSES_FOLDER, csv_filename)
+    
+    # Put the new data into a pandas DataFrame
+    new_row_df = pd.DataFrame([data_from_form])
+    
+    # Check if the CSV file already exists
+    if os.path.exists(csv_file_path):
+        # If it exists, just add the new row to the end
+        new_row_df.to_csv(csv_file_path, mode='a', header=False, index=False)
     else:
-        new_response_df.to_csv(response_file_path, mode='w', header=True, index=False)
+        # If it's a new file, create it and add the headers
+        new_row_df.to_csv(csv_file_path, mode='w', header=True, index=False)
         
-    return jsonify({"message": "Survey submitted successfully!"})
+    return jsonify({"message": "Data saved!"})
 
 
+# This function lets the admin download the responses
 @app.route('/download/<survey_id>')
 def download_responses(survey_id):
-    """Allows the admin to download the collected responses for a survey."""
-    response_file_path = os.path.join(app.config['RESPONSES_FOLDER'], f"{survey_id}.csv")
+    # Find the path to the responses CSV file
+    file_to_download_path = os.path.join(RESPONSES_FOLDER, f"{survey_id}.csv")
 
-    if not os.path.exists(response_file_path):
-        abort(404, description="No responses found for this survey.")
+    # If the file doesn't exist, show an error
+    if not os.path.exists(file_to_download_path):
+        abort(404, description="No responses found to download.")
 
+    # Send the file to the user's browser
     return send_from_directory(
-        directory=app.config['RESPONSES_FOLDER'],
+        directory=RESPONSES_FOLDER,
         path=f"{survey_id}.csv",
-        as_attachment=True,
-        download_name=f"survey_{survey_id}_responses.csv"
+        as_attachment=True
     )
 
-# Other routes (like share_email) are unchanged...
 
+# This makes the app run when you type "python app.py" in the terminal
 if __name__ == '__main__':
     app.run(debug=True)
