@@ -1,149 +1,160 @@
 # My first Flask survey app
 
-# Import the things we need from Flask and other libraries
+# import all the stuff I need
 import os
 import uuid
 import pandas as pd
 from flask import Flask, request, render_template, jsonify, send_from_directory, abort
+# ★★★★★ NEW IMPORT ★★★★★
+from flask_mail import Mail, Message
 
-# Create the Flask app
+# make a new flask app
 app = Flask(__name__)
 
 # --- App Setup ---
-# Define the folders where we will save files
 UPLOAD_FOLDER = 'uploads'
 RESPONSES_FOLDER = 'responses'
 
-# Create the folders if they don't already exist
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 if not os.path.exists(RESPONSES_FOLDER):
     os.makedirs(RESPONSES_FOLDER)
+
+# ★★★★★ NEW EMAIL CONFIGURATION SECTION ★★★★★
+# Replace with your own Gmail address and App Password
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'articlestore701@gmail.com'  # <-- IMPORTANT: Your email
+app.config['MAIL_PASSWORD'] = 'ldtq dvpr kpft yvvz' # <-- IMPORTANT: Your App Password
+app.config['MAIL_DEFAULT_SENDER'] = 'articlestore701@gmail.com' # <-- IMPORTANT: Your email
+
+# Initialize the Mail object
+mail = Mail(app)
 # --- End Setup ---
 
 
-# This is the main page of our website
 @app.route('/')
 def index():
-    # Just show the index.html file
+    # just return the main html page
     return render_template('index.html')
 
-# This handles the file upload
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    # Check if a file was actually sent
-    if 'surveyFile' in request.files:
-        the_file = request.files['surveyFile']
+    # This function is unchanged
+    the_file = request.files['surveyFile']
+    if the_file and the_file.filename != '' and the_file.filename.endswith(('.csv', '.xlsx', '.xls')):
+        original_extension = os.path.splitext(the_file.filename)[1]
+        survey_id = str(uuid.uuid4())
+        new_filename = survey_id + original_extension
+        save_path = os.path.join(UPLOAD_FOLDER, new_filename)
+        the_file.save(save_path)
+        survey_url = request.host_url + "survey/" + survey_id
+        return jsonify({"message": "File uploaded!", "survey_id": survey_id, "survey_url": survey_url})
+    return jsonify({"error": "Upload failed. Please select a valid .csv or .xlsx file."}), 400
 
-        # Make sure the filename is not empty
-        if the_file.filename != '':
-            # Create a new unique ID for the survey
-            survey_id = str(uuid.uuid4())
-            new_filename = f"{survey_id}.xlsx"
-            
-            # Figure out where to save it
-            save_path = os.path.join(UPLOAD_FOLDER, new_filename)
-            the_file.save(save_path)
 
-            # Create the full URL for the new survey
-            survey_url = request.host_url + f"survey/{survey_id}"
-
-            # Send a success message back to the javascript
-            return jsonify({
-                "message": "File uploaded!",
-                "survey_id": survey_id,
-                "survey_url": survey_url
-            })
-    
-    # If something went wrong, send an error
-    return jsonify({"error": "Something went wrong during upload"}), 400
-
-# This function shows the survey form to a user
 @app.route('/survey/<survey_id>')
 def show_survey(survey_id):
-    # Find the path to the excel file for this survey
-    file_path = os.path.join(UPLOAD_FOLDER, f"{survey_id}.xlsx")
-
-    # Try to read the file and create the form
+    # This function is unchanged
+    found_file = None
+    for filename in os.listdir(UPLOAD_FOLDER):
+        if filename.startswith(survey_id):
+            found_file = filename
+            break
+    if not found_file:
+        abort(404, description="Survey file not found.")
+    file_path = os.path.join(UPLOAD_FOLDER, found_file)
     try:
-        # Read the excel file into pandas
-        df = pd.read_excel(file_path)
-        
-        # Get the column headers from the file
+        df = pd.read_csv(file_path) if found_file.endswith('.csv') else pd.read_excel(file_path)
         column_headers = df.columns.tolist()
-        
-        # This will hold the list of fields for our form
         form_fields = []
-
-        # Loop through each header we found in the file
+        checkbox_columns = ['fee paid', 'fees paid', 'cutoff cleared']
         for header in column_headers:
-            
-            # The 'label' is the original header name
-            field_label = header
-            
-            # The 'name' needs to be simple for HTML.
-            # So we make it lowercase and replace spaces with underscores.
-            field_name = header.lower().replace(' ', '_')
-            
-            # Create a dictionary for this field
-            field_info = {
-                'name': field_name, 
-                'label': field_label
-            }
-            # Add the dictionary to our list of fields
+            field_label, field_name = header, header.lower().replace(' ', '_').replace('.', '')
+            field_info = {'name': field_name, 'label': field_label}
+            header_lower = field_label.lower().strip()
+            if header_lower in ['d.o.b', 'project start', 'project ended']:
+                field_info['type'] = 'date'
+            elif header_lower == 'department':
+                field_info['type'] = 'select'
+                field_info['options'] = df[header].dropna().unique().tolist()
+            elif header_lower in checkbox_columns:
+                field_info['type'] = 'checkbox'
+            else:
+                field_info['type'] = 'text'
             form_fields.append(field_info)
-            
-        # Now, render the survey.html template and give it the list of fields
-        return render_template('survey.html', survey_id=survey_id, fields=form_fields)
-
+        return render_template('survey.html', fields=form_fields)
     except Exception as e:
-        # If anything goes wrong, print the error and show an error page
-        print("There was an error reading the excel file:")
-        print(e)
-        abort(500, description="Could not process the survey file.")
+        print("!! ERROR reading file !!", e)
+        abort(500, description="Could not process file. Make sure headers are in the first row.")
 
-# This function saves the data when a user submits the form
+
 @app.route('/submit/<survey_id>', methods=['POST'])
 def submit_survey(survey_id):
-    # Get the data that the javascript sent to us
+    # This function is unchanged
     data_from_form = request.json
-    
-    # Figure out the name of the CSV file for saving responses
-    csv_filename = f"{survey_id}.csv"
+    csv_filename = survey_id + ".csv"
     csv_file_path = os.path.join(RESPONSES_FOLDER, csv_filename)
-    
-    # Put the new data into a pandas DataFrame
+    for key, value in data_from_form.items():
+        if value == 'on':
+            data_from_form[key] = 'Yes'
     new_row_df = pd.DataFrame([data_from_form])
-    
-    # Check if the CSV file already exists
     if os.path.exists(csv_file_path):
-        # If it exists, just add the new row to the end
         new_row_df.to_csv(csv_file_path, mode='a', header=False, index=False)
     else:
-        # If it's a new file, create it and add the headers
         new_row_df.to_csv(csv_file_path, mode='w', header=True, index=False)
-        
     return jsonify({"message": "Data saved!"})
 
+# ★★★★★ THIS IS THE UPDATED EMAIL FUNCTION ★★★★★
+@app.route('/share_email', methods=['POST'])
+def share_by_email():
+    # get the data the javascript sent
+    data = request.json
+    recipient_email = data.get('email')
+    survey_link = data.get('link')
 
-# This function lets the admin download the responses
+    # check if we got an email address and link
+    if not recipient_email or not survey_link:
+        return jsonify({"error": "Email and link are required."}), 400
+
+    # try to send the email
+    try:
+        # create the email message
+        msg = Message(
+            subject="You're Invited to Take a Survey!",
+            recipients=[recipient_email] # the person we are sending it to
+        )
+        
+        # this is the body of the email
+        msg.body = f"Hello,\n\nPlease complete this survey by clicking the following link:\n{survey_link}\n\nThank you!"
+        
+        # send the message!
+        mail.send(msg)
+        
+        # tell the javascript it worked
+        return jsonify({"message": f"Survey successfully sent to {recipient_email}"})
+
+    except Exception as e:
+        # if something went wrong, print the error and tell the user
+        print("!! EMAIL SENDING ERROR !!")
+        print(e)
+        return jsonify({"error": "Failed to send email. Check your credentials in app.py."}), 500
+
+
 @app.route('/download/<survey_id>')
 def download_responses(survey_id):
-    # Find the path to the responses CSV file
-    file_to_download_path = os.path.join(RESPONSES_FOLDER, f"{survey_id}.csv")
-
-    # If the file doesn't exist, show an error
-    if not os.path.exists(file_to_download_path):
-        abort(404, description="No responses found to download.")
-
-    # Send the file to the user's browser
+    # This function is unchanged
+    csv_file = survey_id + ".csv"
+    if not os.path.exists(os.path.join(RESPONSES_FOLDER, csv_file)):
+        return "No responses found to download for this survey."
     return send_from_directory(
         directory=RESPONSES_FOLDER,
-        path=f"{survey_id}.csv",
+        path=csv_file,
         as_attachment=True
     )
 
-
-# This makes the app run when you type "python app.py" in the terminal
+# this line starts the web server
 if __name__ == '__main__':
     app.run(debug=True)
