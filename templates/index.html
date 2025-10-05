@@ -31,8 +31,9 @@
 
     <main id="upload-screen" class="flex-grow flex flex-col items-center justify-center p-5 w-full">
         <div class="content w-full max-w-2xl bg-white rounded-2xl shadow-lg p-5">
-            <h2 class="text-[#8e44ad] mb-10 text-xl font-bold">HOW DO YOU WANT TO BUILD YOUR FORM?</h2>
-            <input type="file" id="file-input" accept=".xlsx, .xls" class="hidden">
+            <h2 class="text-[#8e44ad] mb-10 text-xl font-bold">YOU CAN BUILD YOUR FORM HERE.</h2>
+            <!-- We add the 'accept' attribute to filter for the file types we support -->
+            <input type="file" id="file-input" accept=".csv,.xlsx,.xls" class="hidden">
             <div id="upload-box" class="upload-box bg-[#f3e5f5] p-10 rounded-2xl text-center cursor-pointer ">
                 <button
                     class="upload-button bg-[#ce93d8] text-white border-none rounded-2xl w-[180px] h-[80px] flex flex-col items-center justify-center mx-auto mb-2 text-sm cursor-pointer shadow-lg transition-colors hover:bg-[#ba68c8]">
