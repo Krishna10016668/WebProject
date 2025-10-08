@@ -19,6 +19,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalMessage = document.getElementById('modal-message');
     const closeModalButton = document.getElementById('closeModal');
 
+    const toggleButton = document.getElementById('toggleButton');
+    const closeButton = document.getElementById('closeButton');
+    const ExcelPage = document.getElementById('ExcelPage');
+
     // --- STATE ---
     // We store the survey_id globally in this script once we get it from the backend
     let currentSurveyId = null;
@@ -128,4 +132,30 @@ document.addEventListener('DOMContentLoaded', () => {
         // Redirect the browser to the download URL. The browser will handle the file download.
         window.location.href = `/download/${currentSurveyId}`;
     });
+
+    
 });
+
+function togglePage() {
+            // Check if the page currently has the 'hidden' class
+            if (ExcelPage.classList.contains('hidden')) {
+                ExcelPage.classList.remove('hidden');
+                ExcelPage.classList.add('flex', 'flex-col', 'items-center', 'justify-center');
+                toggleButton.textContent = "Hide Demo Excelsheet";
+            } else {
+                ExcelPage.classList.add('hidden');
+                ExcelPage.classList.remove('flex', 'flex-col', 'items-center', 'justify-center');
+                toggleButton.textContent = "Show Demo Excelsheet";
+            }
+        }
+
+        // Event listeners
+        toggleButton.addEventListener('click', togglePage);
+        closeButton.addEventListener('click', togglePage);
+        
+        // Ensure the lavender page is hidden if the user hits escape
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !lavenderPage.classList.contains('hidden')) {
+                togglePage();
+            }
+        });
