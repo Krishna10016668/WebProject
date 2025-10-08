@@ -18,7 +18,7 @@ and the results are presented or processed via web pages handled by the `templat
 
 | Category | Technology | Notes |
 ---------------------------------
-| **Backend** | Python (`app.py`) | Likely **Flask** or **Django**. **Required library:** You will likely need a library like `openpyxl` or `pandas` for Excel parsing. |
+| **Backend** | Python (`app.py`) |**Flask** . **Required library:** You will likely need a library like `openpyxl` or `pandas` for Excel parsing. |
 | **Frontend** | HTML, CSS, JavaScript | Used for the user interface and handling file selection. |
 | **Templates** | Jinja2 | The default engine used by Flask (or your Python web framework) for rendering dynamic HTML |
 | **Database** | 
