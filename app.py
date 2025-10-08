@@ -67,28 +67,59 @@ def show_survey(survey_id):
         abort(404, description="Survey file not found.")
     file_path = os.path.join(UPLOAD_FOLDER, found_file)
     try:
-        df = pd.read_csv(file_path) if found_file.endswith('.csv') else pd.read_excel(file_path)
-        column_headers = df.columns.tolist()
+         # 1. Read the file with no headers (header=None) to get all cells as data.
+        if found_file.endswith(('.csv', '.CSV')):
+            full_df = pd.read_csv(file_path, header=None)
+        elif found_file.endswith(('.xlsx', '.XLSX', '.xls', '.XLS')):
+            full_df = pd.read_excel(file_path, header=None)
+        else:
+            abort(400, description="Unsupported file format.")
+        
         form_fields = []
-        checkbox_columns = ['fee paid', 'fees paid', 'cutoff cleared']
-        for header in column_headers:
-            field_label, field_name = header, header.lower().replace(' ', '_').replace('.', '')
+
+        # 2. Iterate through columns to process each field definition
+        for col_index in full_df.columns:
+            
+            # Get data for the current column, drop NaNs, and reset index
+            column_data = full_df[col_index].dropna().reset_index(drop=True)
+            
+            # Ensure there is enough data for at least a Label and a Type (2 rows)
+            if len(column_data) < 2:
+                print(f"Skipping column {col_index}: missing Label (Row 1) or Type (Row 2).")
+                continue
+
+            # 3. Extract the definition from the top of the column
+            field_label = str(column_data[0]).strip()  # Row 1 (index 0) is the Label
+            field_type_codeword = str(column_data[1]).lower().strip() # Row 2 (index 1) is the Type
+            
+            # 4. Create the field dictionary
+            # Create a clean name for internal form use (e.g., 'Full Name' -> 'full_name')
+            field_name = field_label.lower().replace(' ', '_').replace('.', '')
             field_info = {'name': field_name, 'label': field_label}
-            header_lower = field_label.lower().strip()
-            if header_lower in ['d.o.b', 'project start', 'project ended']:
-                field_info['type'] = 'date'
-            elif header_lower == 'department':
-                field_info['type'] = 'select'
-                field_info['options'] = df[header].dropna().unique().tolist()
-            elif header_lower in checkbox_columns:
-                field_info['type'] = 'checkbox'
-            else:
-                field_info['type'] = 'text'
+            
+            codeword = field_type_codeword
+            field_info['type'] = codeword
+
+            # 5. Logic for 'select' (dropdown) fields
+            if codeword == 'select':
+                # Data for options starts from Row 3 (index 2)
+                # Use unique values in the rest of the column for options
+                field_options = column_data.iloc[2:].unique().tolist()
+                field_info['options'] = field_options
+            
+            # Optional: Fallback for unknown types
+            elif codeword not in ['date', 'checkbox', 'select', 'text']:
+                 field_info['type'] = 'text'
+
             form_fields.append(field_info)
-        return render_template('survey.html', fields=form_fields)
+        
+        return render_template('survey.html', fields=form_fields, survey_id=survey_id)
+        
     except Exception as e:
-        print("!! ERROR reading file !!", e)
-        abort(500, description="Could not process file. Make sure headers are in the first row.")
+        print(f"!! ERROR reading file for survey {survey_id} !! {e}")
+        abort(500, description="Could not process file. Ensure each column has the Field Label in Row 1 and the Type Codeword in Row 2.")
+        
+       
 
 
 @app.route('/submit/<survey_id>', methods=['POST'])
