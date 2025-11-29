@@ -20,6 +20,9 @@ import json
 from flask import Flask, request, render_template, jsonify, send_from_directory, abort, url_for
 from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
+# ---- SECURE DATABASE CONFIGURATION ----Author: SAMANT
+from urllib.parse import quote_plus
+
 
 # -----------------------------------------------------------------------------
 # Flask App Setup
@@ -27,15 +30,27 @@ from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-# Folder where uploaded survey templates will be stored.
-UPLOAD_FOLDER = 'uploads'
+# 1. Get the absolute path to the folder where app.py lives
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Folder where generated response Excel files will be stored.
-RESPONSES_FOLDER = 'responses'  # Used for temporary Excel export files
+# 2. Define folders using that absolute path
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+RESPONSES_FOLDER = os.path.join(BASE_DIR, 'responses')
 
 # Ensure folders exist (development friendly).
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(RESPONSES_FOLDER, exist_ok=True)
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+if not os.path.exists(RESPONSES_FOLDER):
+    os.makedirs(RESPONSES_FOLDER)
+
+    # --- SECURE DATABASE CONFIG --- Author: SAMANT
+try:
+    from private_config import DB_PASSWORD, MAIL_EMAIL, MAIL_PASSWORD
+except ImportError:
+    print(" ERROR: Could not find 'private_config.py'.")
+    exit()
+
+encoded_password = quote_plus(DB_PASSWORD)
 
 # -----------------------------------------------------------------------------
 # Database Configuration (PostgreSQL)
@@ -48,7 +63,7 @@ os.makedirs(RESPONSES_FOLDER, exist_ok=True)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'postgresql+psycopg2://flask_user:your_secure_password@localhost/survey_db'
+    f'postgresql+psycopg2://flask_user:{encoded_password}@127.0.0.1/survey_db'
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -63,9 +78,11 @@ db = SQLAlchemy(app)
 app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True') == 'True'
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'articlestore701@gmail.com')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'ldtq dvpr kpft yvvz')
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+
+# Get email and password from private_config.py ---Author: SAMANT
+app.config['MAIL_USERNAME'] = MAIL_EMAIL
+app.config['MAIL_PASSWORD'] = MAIL_PASSWORD
+app.config['MAIL_DEFAULT_SENDER'] = MAIL_EMAIL
 
 mail = Mail(app)
 
@@ -146,7 +163,7 @@ def upload_file():
     return jsonify({"error": "Upload failed. Please select a valid .csv or .xlsx file."}), 400
 
 
-@app.route('/survey/<survey_id>')
+@app.route('/survey/<survey_id>')  # AUTHOR SAMANT
 def show_survey(survey_id):
     """
     Display the dynamic survey form for a given survey_id.
@@ -303,54 +320,97 @@ def share_by_email():
         app.logger.exception("EMAIL SENDING ERROR")
         return jsonify({"error": "Failed to send email. Check your credentials."}), 500
 
+# ----- DOWNLOAD FUNCTION FOR EXCEL EXPORT ----- AUTHOR SAMANT
+# MODIFIED BY SAMANT TO PRESERVE THE OLD DATA IN THE NEWLY CREATED EXCELSHEET
 
 @app.route('/download/<survey_id>')
 def download_responses(survey_id):
-    """
-    Export all stored responses for a survey as an Excel file.
+    # 1. SEARCH FOR THE ORIGINAL FILE
+    # We look for any file starting with the survey_id
+    found_file = None
+    if not os.path.exists(UPLOAD_FOLDER):
+         return "Uploads folder missing.", 404
 
-    Author: Saksham (rewrote CSV approach to DB + Excel)
+    for filename in os.listdir(UPLOAD_FOLDER):
+        if filename.startswith(survey_id):
+            found_file = filename
+            break     
+    
+    if not found_file:
+        return f"CRITICAL ERROR: Original survey template not found for ID: {survey_id}. Cannot merge data.", 404
 
-    Steps:
-        1. Query all SurveyResponse entries for the given survey_id.
-        2. Convert JSON string data back to dicts.
-        3. Add a formatted submission_time for each row.
-        4. Build a pandas DataFrame from all responses.
-        5. Write it to an .xlsx file using openpyxl.
-        6. Send the file as a download to the client.
-    """
-    # Fetch responses for the survey
+    file_path = os.path.join(UPLOAD_FOLDER, found_file)
+    print(f"DEBUG: Found original file at {file_path}")
+
+    # 2. READ THE ORIGINAL FILE (This preserves your headers/old data)
+    try:
+        if found_file.lower().endswith(('.xlsx', '.xls')):
+            original_df = pd.read_excel(file_path, header=None, engine='openpyxl')
+        else:
+            original_df = pd.read_csv(file_path, header=None)
+    except Exception as e:
+        return f"Error reading original file: {e}", 500
+
+    # 3. CREATE COLUMN MAPPING (Header Text -> Column Index)
+    # This tells us where to put the data (e.g., "First Name" is at index 0)
+    col_mapping = {}
+    for col_index in original_df.columns:
+        cell_value = original_df.iloc[0, col_index]
+        if pd.isna(cell_value):
+            continue
+        field_label = str(cell_value).strip()
+        # Normalize the key: "First Name" -> "first_name"
+        internal_key = field_label.lower().replace(' ', '_').replace('.', '')
+        col_mapping[internal_key] = col_index
+
+    # 4. FETCH NEW DATA FROM POSTGRES
     responses = SurveyResponse.query.filter_by(survey_id=survey_id).all()
-    if not responses:
-        return "No responses found to download for this survey.", 404
+    new_rows = []
+    
+    if responses:
+        for response in responses:
+            try:
+                data = json.loads(response.response_data)
+                # Create a row with the same width as the original sheet
+                current_row = [None] * len(original_df.columns)
+                
+                # Smart Match: Put DB data into the correct Excel column
+                for key, value in data.items():
+                    # 1. Try exact match
+                    if key in col_mapping:
+                        target_col_index = col_mapping[key]
+                        current_row[target_col_index] = value
+                    else:
+                        # 2. Try normalized match
+                        normalized_key = str(key).lower().replace(' ', '_').replace('.', '')
+                        if normalized_key in col_mapping:
+                            target_col_index = col_mapping[normalized_key]
+                            current_row[target_col_index] = value
 
-    response_list = []
-    for response in responses:
-        data = json.loads(response.response_data)
-        data['submission_time'] = response.submission_time.strftime('%Y-%m-%d %H:%M:%S')
-        response_list.append(data)
+                # Optional: Add timestamp at the end
+                #current_row.append(response.submission_time.strftime('%Y-%m-%d %H:%M:%S'))
+                new_rows.append(current_row)
+            except Exception as e:
+                print(f"Skipping corrupt record: {e}")
 
-    df = pd.DataFrame(response_list)
+    # 5. MERGE (The Critical Step)
+    if new_rows:
+        new_df = pd.DataFrame(new_rows)
+        # We stack new_df BENEATH original_df
+        combined_df = pd.concat([original_df, new_df], ignore_index=True)
+    else:
+        # If no new responses, just give back the original file
+        combined_df = original_df
+
+    # 6. SAVE AND SEND
     excel_filename = f"responses_{survey_id}.xlsx"
     excel_file_path = os.path.join(RESPONSES_FOLDER, excel_filename)
 
     try:
-        df.to_excel(excel_file_path, index=False, engine='openpyxl')
-    except ImportError:
-        # openpyxl is required to write Excel files from pandas.
-        return (
-            "Error: openpyxl library is required for Excel export. "
-            "Please run 'pip install openpyxl'."
-        ), 500
-    except Exception:
-        app.logger.exception("Failed to write Excel file")
-        return "Error generating Excel file", 500
-
-    return send_from_directory(
-        directory=RESPONSES_FOLDER,
-        path=excel_filename,
-        as_attachment=True
-    )
+        combined_df.to_excel(excel_file_path, index=False, header=False, engine='openpyxl')
+        return send_from_directory(directory=RESPONSES_FOLDER, path=excel_filename, as_attachment=True)
+    except Exception as e:
+        return f"Error creating download: {e}", 500
 
 
 # -----------------------------------------------------------------------------
