@@ -1,0 +1,10 @@
+# Ignore python cache files
+__pycache__/
+*.pyc
+
+# Ignore Secret Configuration (NEVER UPLOAD THESE)
+private_config.py
+
+# Ignore User Data (Don't upload test excel files)
+uploads/
+responses/
