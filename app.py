@@ -43,14 +43,28 @@ if not os.path.exists(UPLOAD_FOLDER):
 if not os.path.exists(RESPONSES_FOLDER):
     os.makedirs(RESPONSES_FOLDER)
 
-    # --- SECURE DATABASE CONFIG --- Author: SAMANT
+# --- SECURE DATABASE / EMAIL CONFIG --- Author: SAMANT
+# Prefer environment variables for deployment; fall back to private_config.py for local development.
 try:
-    from private_config import DB_PASSWORD, MAIL_EMAIL, MAIL_PASSWORD
+    from private_config import (
+        DB_PASSWORD as PC_DB_PASSWORD,
+        MAIL_EMAIL as PC_MAIL_EMAIL,
+        MAIL_PASSWORD as PC_MAIL_PASSWORD,
+    )
 except ImportError:
-    print(" ERROR: Could not find 'private_config.py'.")
-    exit()
+    # On Render or any environment where private_config.py is not present,
+    # these values will be provided via environment variables instead.
+    PC_DB_PASSWORD = None
+    PC_MAIL_EMAIL = None
+    PC_MAIL_PASSWORD = None
 
-encoded_password = quote_plus(DB_PASSWORD)
+# Read from environment first, then from private_config.py as a fallback.
+DB_PASSWORD = os.environ.get("DB_PASSWORD", PC_DB_PASSWORD)
+MAIL_EMAIL = os.environ.get("MAIL_EMAIL", PC_MAIL_EMAIL)
+MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD", PC_MAIL_PASSWORD)
+
+# In cloud deployments we usually rely on DATABASE_URL, so DB_PASSWORD is optional.
+encoded_password = quote_plus(DB_PASSWORD) if DB_PASSWORD is not None else ""
 
 # -----------------------------------------------------------------------------
 # Database Configuration (PostgreSQL)
@@ -79,12 +93,18 @@ app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True') == 'True'
 
-# Get email and password from private_config.py ---Author: SAMANT
+# Get email and password from environment or private_config.py ---Author: SAMANT
 app.config['MAIL_USERNAME'] = MAIL_EMAIL
 app.config['MAIL_PASSWORD'] = MAIL_PASSWORD
 app.config['MAIL_DEFAULT_SENDER'] = MAIL_EMAIL
 
 mail = Mail(app)
+
+# Ensure all database tables exist on startup.
+# For larger projects, Flask-Migrate/Alembic is preferred, but this is
+# sufficient for this survey app in both local and Render deployments.
+with app.app_context():
+    db.create_all()
 
 # -----------------------------------------------------------------------------
 # Database Model
@@ -324,20 +344,19 @@ def share_by_email():
 # MODIFIED BY SAMANT TO PRESERVE THE OLD DATA IN THE NEWLY CREATED EXCELSHEET
 
 @app.route('/download/<survey_id>')
-@app.route('/download/<survey_id>')
 def download_responses(survey_id):
     # 1. Find Original File
     found_file = None
     if not os.path.exists(UPLOAD_FOLDER):
-         return "Uploads folder missing.", 404
+        return "Uploads folder missing.", 404
 
     for filename in os.listdir(UPLOAD_FOLDER):
         if filename.startswith(survey_id):
             found_file = filename
             break     
-    
+
     if not found_file:
-        return f"CRITICAL ERROR: Original template not found.", 404
+        return "CRITICAL ERROR: Original template not found.", 404
 
     file_path = os.path.join(UPLOAD_FOLDER, found_file)
 
@@ -365,7 +384,8 @@ def download_responses(survey_id):
     for col_index in original_df.columns:
         # Build Mapping
         cell_value = original_df.iloc[0, col_index]
-        if pd.isna(cell_value): continue
+        if pd.isna(cell_value):
+            continue
         
         field_label = str(cell_value).strip()
         internal_key = field_label.lower().replace(' ', '_').replace('.', '')
@@ -389,7 +409,7 @@ def download_responses(survey_id):
     # We want to delete Row 1 (Type) and Option Rows (where non-select cols are empty).
     
     header_row = original_df.iloc[[0]]
-    potential_data = original_df.iloc[2:] # Skip Header and Type
+    potential_data = original_df.iloc[2:]  # Skip Header and Type
 
     # Force empty strings to be None so dropna works
     potential_data = potential_data.replace(r'^\s*$', None, regex=True)
@@ -428,7 +448,7 @@ def download_responses(survey_id):
                 # Add 5 hours 30 minutes to the stored UTC time
                 utc_time = response.submission_time
                 ist_time = utc_time + timedelta(hours=5, minutes=30)
-                formatted_time = ist_time.strftime('%Y-%m-%d %I:%M %p') # e.g. 2025-11-30 02:30 PM
+                formatted_time = ist_time.strftime('%Y-%m-%d %I:%M %p')  # e.g. 2025-11-30 02:30 PM
                 
                 # Append to row (This aligns with the 'Response At' header we added)
                 current_row.append(formatted_time)
@@ -472,5 +492,3 @@ if __name__ == '__main__':
 # Usage hint (added by Saksham):
 # After activating the virtual environment, set the DATABASE_URL in your shell:
 #   $env:DATABASE_URL = "postgresql+psycopg2://flask_user:password@localhost:5432/survey_db"
-
- 
