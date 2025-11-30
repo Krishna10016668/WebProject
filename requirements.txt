@@ -1,0 +1,7 @@
+flask
+flask-mail
+flask-sqlalchemy
+psycopg2-binary
+pandas
+openpyxl
+gunicorn
