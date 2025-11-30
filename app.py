@@ -306,7 +306,9 @@ def submit_survey(survey_id):
 @app.route('/share_email', methods=['POST'])
 def share_by_email():
     """
-    Send a survey link to a respondent via email.
+    Send a survey link to a respondent via SendGrid API instead of SMTP.
+
+    Author: SAMANT (converted to SendGrid API for Render deployment)
 
     Expected JSON payload:
         {
@@ -324,24 +326,66 @@ def share_by_email():
     if not recipient_email or not survey_link:
         return jsonify({"error": "Email and link are required."}), 400
 
-    try:
-        msg = Message(
-            subject="You're Invited to Take a Survey!",
-            recipients=[recipient_email]
-        )
-        msg.body = (
-            "Hello,\n\n"
-            "Please complete this survey by clicking the following link:\n"
-            f"{survey_link}\n\n"
-            "Thank you!"
-        )
-        mail.send(msg)
+    # --- SENDGRID INTEGRATION ---
+    import requests  # local import to avoid adding new global dependency lines
 
-        return jsonify({"message": f"Survey successfully sent to {recipient_email}"}), 200
+    sendgrid_api_key = os.environ.get("SENDGRID_API_KEY")
+    sender_email = os.environ.get("SENDER_EMAIL")
+    sender_name = os.environ.get("SENDGRID_FROM_NAME", "Survey App")
 
-    except Exception:
-        app.logger.exception("EMAIL SENDING ERROR")
-        return jsonify({"error": "Failed to send email. Check your credentials."}), 500
+    if not sendgrid_api_key or not sender_email:
+        app.logger.error("SendGrid not configured: missing SENDGRID_API_KEY or SENDER_EMAIL.")
+        return jsonify({"error": "SendGrid is not configured on the server."}), 500
+
+    email_payload = {
+        "personalizations": [
+            {
+                "to": [{"email": recipient_email}],
+                "subject": "You're Invited to Take a Survey!"
+            }
+        ],
+        "from": {
+            "email": sender_email,
+            "name": sender_name
+        },
+        "content": [
+            {
+                "type": "text/plain",
+                "value": (
+                    "Hello,\n\n"
+                    "Please complete this survey by clicking the following link:\n"
+                    f"{survey_link}\n\n"
+                    "Thank you!"
+                )
+            }
+        ]
+    }
+
+    response = requests.post(
+        "https://api.sendgrid.com/v3/mail/send",
+        headers={
+            "Authorization": f"Bearer {sendgrid_api_key}",
+            "Content-Type": "application/json"
+        },
+        json=email_payload,
+        timeout=10  # seconds, avoids hanging workers
+    )
+
+    # Successful send returns HTTP 202 from SendGrid
+    if response.status_code == 202:
+        return jsonify({"message": f"Survey email sent to {recipient_email}"}), 200
+
+    # Log error details for debugging
+    app.logger.error(
+        "SendGrid email failed: status=%s, body=%s",
+        response.status_code,
+        response.text,
+    )
+    return jsonify({
+        "error": "Failed to send email via SendGrid.",
+        "details": "Status code: {}".format(response.status_code)
+    }), 500
+
 
 # ----- DOWNLOAD FUNCTION FOR EXCEL EXPORT ----- AUTHOR SAMANT
 # MODIFIED BY SAMANT TO PRESERVE THE OLD DATA IN THE NEWLY CREATED EXCELSHEET
