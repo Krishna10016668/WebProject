@@ -25,6 +25,9 @@ from urllib.parse import quote_plus
 # ---- NEW IMPORTS FOR AUTH ----Author: SAMANT
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+# Add these imports
+from authlib.integrations.flask_client import OAuth
+import secrets
 
 
 # -----------------------------------------------------------------------------
@@ -32,6 +35,22 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # -----------------------------------------------------------------------------
 
 app = Flask(__name__)
+
+# --- OAUTH SETUP ---
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id=os.environ.get('GOOGLE_CLIENT_ID'),
+    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
+    access_token_url='https://accounts.google.com/o/oauth2/token',
+    access_token_params=None,
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    authorize_params=None,
+    api_base_url='https://www.googleapis.com/oauth2/v1/',
+    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
+    client_kwargs={'scope': 'email profile'},
+    jwks_uri='https://www.googleapis.com/oauth2/v3/certs' # Enhances security
+)
 
 # 1. Get the absolute path to the folder where app.py lives
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -206,9 +225,57 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
+
+
 # -----------------------------------------------------------------------------
 # Main Routes
 # -----------------------------------------------------------------------------
+
+# --- GOOGLE LOGIN ROUTES ---
+
+@app.route('/login/google')
+def google_login():
+    google = oauth.create_client('google')
+    # This automatically uses the https://webproject... URL on Render
+    redirect_uri = url_for('google_callback', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+@app.route('/auth/callback')
+def google_callback():
+    google = oauth.create_client('google')
+    try:
+        token = google.authorize_access_token()
+        resp = google.get('userinfo')
+        user_info = resp.json()
+    except Exception as e:
+        # If user cancels or something fails
+        flash("Login failed. Please try again.", "error")
+        return redirect(url_for('login'))
+
+    google_email = user_info['email']
+    google_name = user_info.get('name', google_email.split('@')[0])
+
+    # Check if user exists
+    user = User.query.filter_by(email=google_email).first()
+
+    if not user:
+        # Create new user. 
+        # Since they are using Google, we generate a random dummy password
+        # to satisfy the database 'NOT NULL' requirement.
+        dummy_password = secrets.token_hex(16)
+        new_user = User(
+            username=google_name, 
+            email=google_email, 
+            password=generate_password_hash(dummy_password)
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        login_user(new_user)
+    else:
+        # User exists, just log them in
+        login_user(user)
+
+    return redirect(url_for('dashboard'))
 
 @app.route('/')
 def index():

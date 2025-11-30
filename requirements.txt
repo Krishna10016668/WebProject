@@ -7,4 +7,5 @@ pandas
 openpyxl
 gunicorn
 werkzeug
+authlib
 requests
