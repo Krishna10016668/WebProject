@@ -15,7 +15,7 @@
 import os
 import uuid
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from flask import Flask, request, render_template, jsonify, send_from_directory, abort, url_for
 from flask_mail import Mail, Message
@@ -324,9 +324,9 @@ def share_by_email():
 # MODIFIED BY SAMANT TO PRESERVE THE OLD DATA IN THE NEWLY CREATED EXCELSHEET
 
 @app.route('/download/<survey_id>')
+@app.route('/download/<survey_id>')
 def download_responses(survey_id):
-    # 1. SEARCH FOR THE ORIGINAL FILE
-    # We look for any file starting with the survey_id
+    # 1. Find Original File
     found_file = None
     if not os.path.exists(UPLOAD_FOLDER):
          return "Uploads folder missing.", 404
@@ -337,33 +337,74 @@ def download_responses(survey_id):
             break     
     
     if not found_file:
-        return f"CRITICAL ERROR: Original survey template not found for ID: {survey_id}. Cannot merge data.", 404
+        return f"CRITICAL ERROR: Original template not found.", 404
 
     file_path = os.path.join(UPLOAD_FOLDER, found_file)
-    print(f"DEBUG: Found original file at {file_path}")
 
-    # 2. READ THE ORIGINAL FILE (This preserves your headers/old data)
+    # 2. Read File
     try:
         if found_file.lower().endswith(('.xlsx', '.xls')):
             original_df = pd.read_excel(file_path, header=None, engine='openpyxl')
         else:
             original_df = pd.read_csv(file_path, header=None)
     except Exception as e:
-        return f"Error reading original file: {e}", 500
+        return f"Error reading file: {e}", 500
 
-    # 3. CREATE COLUMN MAPPING (Header Text -> Column Index)
-    # This tells us where to put the data (e.g., "First Name" is at index 0)
+    # 3. Analyze Structure (Find which columns are NOT dropdowns)
+    # Anchors are columns that users MUST fill (Name, Date) or the App fills (Timestamp).
+    # Dropdowns are NOT anchors because template option rows have text there.
     col_mapping = {}
+    anchor_indices = []
+
+    # Get Type Row (Row 1)
+    if len(original_df) > 1:
+        type_row = original_df.iloc[1]
+    else:
+        type_row = pd.Series([])
+
     for col_index in original_df.columns:
+        # Build Mapping
         cell_value = original_df.iloc[0, col_index]
-        if pd.isna(cell_value):
-            continue
+        if pd.isna(cell_value): continue
+        
         field_label = str(cell_value).strip()
-        # Normalize the key: "First Name" -> "first_name"
         internal_key = field_label.lower().replace(' ', '_').replace('.', '')
         col_mapping[internal_key] = col_index
 
-    # 4. FETCH NEW DATA FROM POSTGRES
+        # LOGIC: Check if this column is an "Anchor"
+        # Case A: It's a standard column defined in the template
+        if col_index < len(type_row):
+            type_val = str(type_row[col_index]).lower().strip()
+            # If it's NOT a select box, it's a valid anchor (e.g. text, date)
+            if type_val != 'select':
+                anchor_indices.append(col_index)
+        
+        # Case B: It's an extra column (like "Submission Time")
+        # This protects rows that have timestamps even if other fields are empty
+        else:
+            anchor_indices.append(col_index)
+
+    # 4. Filter the Template
+    # We want to keep Header (Row 0) and any Old Data.
+    # We want to delete Row 1 (Type) and Option Rows (where non-select cols are empty).
+    
+    header_row = original_df.iloc[[0]]
+    potential_data = original_df.iloc[2:] # Skip Header and Type
+
+    # Force empty strings to be None so dropna works
+    potential_data = potential_data.replace(r'^\s*$', None, regex=True)
+
+    if anchor_indices:
+        # If a row has NO data in the text/date columns, assume it's just an Option row -> Delete it.
+        valid_old_data = potential_data.dropna(subset=anchor_indices, how='all')
+    else:
+        # If the WHOLE survey is dropdowns, just keep rows with at least 2 values
+        valid_old_data = potential_data.dropna(thresh=2)
+
+    # Create the clean base sheet
+    clean_base_df = pd.concat([header_row, valid_old_data], ignore_index=True)
+
+    # 5. Fetch and Merge New Data
     responses = SurveyResponse.query.filter_by(survey_id=survey_id).all()
     new_rows = []
     
@@ -371,38 +412,38 @@ def download_responses(survey_id):
         for response in responses:
             try:
                 data = json.loads(response.response_data)
-                # Create a row with the same width as the original sheet
                 current_row = [None] * len(original_df.columns)
                 
-                # Smart Match: Put DB data into the correct Excel column
                 for key, value in data.items():
-                    # 1. Try exact match
                     if key in col_mapping:
                         target_col_index = col_mapping[key]
                         current_row[target_col_index] = value
                     else:
-                        # 2. Try normalized match
                         normalized_key = str(key).lower().replace(' ', '_').replace('.', '')
                         if normalized_key in col_mapping:
                             target_col_index = col_mapping[normalized_key]
                             current_row[target_col_index] = value
 
-                # Optional: Add timestamp at the end
-                #current_row.append(response.submission_time.strftime('%Y-%m-%d %H:%M:%S'))
+                # --- TIMEZONE FIX (UTC -> IST) ---
+                # Add 5 hours 30 minutes to the stored UTC time
+                utc_time = response.submission_time
+                ist_time = utc_time + timedelta(hours=5, minutes=30)
+                formatted_time = ist_time.strftime('%Y-%m-%d %I:%M %p') # e.g. 2025-11-30 02:30 PM
+                
+                # Append to row (This aligns with the 'Response At' header we added)
+                current_row.append(formatted_time)
                 new_rows.append(current_row)
             except Exception as e:
                 print(f"Skipping corrupt record: {e}")
 
-    # 5. MERGE (The Critical Step)
+    # Merge!
     if new_rows:
         new_df = pd.DataFrame(new_rows)
-        # We stack new_df BENEATH original_df
-        combined_df = pd.concat([original_df, new_df], ignore_index=True)
+        combined_df = pd.concat([clean_base_df, new_df], ignore_index=True)
     else:
-        # If no new responses, just give back the original file
-        combined_df = original_df
+        combined_df = clean_base_df
 
-    # 6. SAVE AND SEND
+    # 6. Save and Send
     excel_filename = f"responses_{survey_id}.xlsx"
     excel_file_path = os.path.join(RESPONSES_FOLDER, excel_filename)
 
