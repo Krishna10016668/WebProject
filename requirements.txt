@@ -7,8 +7,6 @@ pandas
 openpyxl
 gunicorn
 werkzeug
-<<<<<<< HEAD
 authlib
 requests
-=======
->>>>>>> c6d92fcd5b84d72e39e12ae693d9ad1b745c8fac
+
