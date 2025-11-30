@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign Up - E-Forms</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-[#f9f4ff] font-['Montserrat'] flex items-center justify-center h-screen">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center border-t-8 border-[#ce93d8]">
+        <h2 class="text-2xl font-bold text-[#8e44ad] mb-6">Create Account</h2>
+        
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4 text-sm">
+                    {{ messages[0] }}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" class="flex flex-col gap-4">
+            <input type="text" name="username" placeholder="Username" required 
+                   class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ce93d8] bg-gray-50">
+            <input type="email" name="email" placeholder="Email Address" required 
+                   class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ce93d8] bg-gray-50">
+            <input type="password" name="password" placeholder="Password" required 
+                   class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ce93d8] bg-gray-50">
+            
+            <button type="submit" class="bg-[#ce93d8] text-white py-3 rounded-lg font-bold hover:bg-[#ba68c8] transition shadow-lg mt-2">
+                Sign Up
+            </button>
+        </form>
+
+        <p class="mt-6 text-sm text-gray-600">
+            Already have an account? <a href="{{ url_for('login') }}" class="text-[#8e44ad] font-bold hover:underline">Login</a>
+        </p>
+    </div>
+
+</body>
+</html>
