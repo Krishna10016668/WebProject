@@ -28,6 +28,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # Add these imports
 from authlib.integrations.flask_client import OAuth
 import secrets
+# --- CRITICAL FIX FOR RENDER HTTPS ---
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 # -----------------------------------------------------------------------------
@@ -36,21 +38,9 @@ import secrets
 
 app = Flask(__name__)
 
-# --- OAUTH SETUP ---
-oauth = OAuth(app)
-google = oauth.register(
-    name='google',
-    client_id=os.environ.get('GOOGLE_CLIENT_ID'),
-    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
-    access_token_url='https://accounts.google.com/o/oauth2/token',
-    access_token_params=None,
-    authorize_url='https://accounts.google.com/o/oauth2/auth',
-    authorize_params=None,
-    api_base_url='https://www.googleapis.com/oauth2/v1/',
-    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
-    client_kwargs={'scope': 'email profile'},
-    jwks_uri='https://www.googleapis.com/oauth2/v3/certs' # Enhances security
-)
+# --- CRITICAL FIX: Tell Flask it is behind a Proxy (Render) ---
+# This ensures url_for generates 'https' links, which Google requires.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # 1. Get the absolute path to the folder where app.py lives
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -84,6 +74,7 @@ except ImportError:
 DB_PASSWORD = os.environ.get("DB_PASSWORD", PC_DB_PASSWORD)
 MAIL_EMAIL = os.environ.get("MAIL_EMAIL", PC_MAIL_EMAIL)
 MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD", PC_MAIL_PASSWORD)
+encoded_password = quote_plus(DB_PASSWORD) if DB_PASSWORD is not None else ""
 
 # In cloud deployments we usually rely on DATABASE_URL, so DB_PASSWORD is optional.
 encoded_password = quote_plus(DB_PASSWORD) if DB_PASSWORD is not None else ""
@@ -99,7 +90,33 @@ encoded_password = quote_plus(DB_PASSWORD) if DB_PASSWORD is not None else ""
 
 
 # --- SECRET KEY IS REQUIRED FOR LOGIN SESSIONS ---
-app.config['SECRET_KEY'] = 'change_this_to_something_secret_key_123'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change_this_to_something_secret_key_123')
+
+# --- OAUTH SETUP (CORRECTED) ---
+oauth = OAuth(app)
+
+# 1. CLEAN THE VARIABLES (Removes accidental quotes or spaces)
+raw_client_id = os.environ.get('GOOGLE_CLIENT_ID')
+raw_client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+
+# Debugging: Print to Render Logs (Masked)
+if raw_client_id:
+    print(f"DEBUG: Client ID Loaded. Starts with: {raw_client_id[:5]}...")
+else:
+    print("DEBUG: ERROR - GOOGLE_CLIENT_ID is None or Empty!")
+
+clean_client_id = raw_client_id.strip().replace('"', '').replace("'", "") if raw_client_id else None
+clean_client_secret = raw_client_secret.strip().replace('"', '').replace("'", "") if raw_client_secret else None
+
+# 2. REGISTER USING AUTOMATIC DISCOVERY (Safer)
+google = oauth.register(
+    name='google',
+    client_id=clean_client_id,
+    client_secret=clean_client_secret,
+    # Use the official Google Discovery URL. This automatically finds the correct endpoints.
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
 
 
 # --- FIX FOR RENDER DEPLOYMENT ---
@@ -235,20 +252,19 @@ def logout():
 
 @app.route('/login/google')
 def google_login():
-    google = oauth.create_client('google')
-    # This automatically uses the https://webproject... URL on Render
+    # Because of ProxyFix, this will now correctly generate an 'https' URL
     redirect_uri = url_for('google_callback', _external=True)
     return google.authorize_redirect(redirect_uri)
 
 @app.route('/auth/callback')
 def google_callback():
-    google = oauth.create_client('google')
+
     try:
         token = google.authorize_access_token()
-        resp = google.get('userinfo')
-        user_info = resp.json()
+        user_info = google.userinfo()
     except Exception as e:
         # If user cancels or something fails
+        print(f"OAuth Error: {e}") # Print error to Render logs
         flash("Login failed. Please try again.", "error")
         return redirect(url_for('login'))
 
